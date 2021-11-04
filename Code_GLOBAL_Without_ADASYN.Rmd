@@ -1,0 +1,601 @@
+---
+title: "Code R : Apprentissage Deséquilibré"
+subtitle: "M2 DM | S1 2021-2022"
+author: "Noé LEBRETON, Vishwa ELANKUMARAN"
+date: "October 25, 2021"
+output: pdf_document
+---
+
+Ce fichier présente les données, met en place les techniques d'échantillonnage classique c'est à dire sur-échantillonnage et sous-échantillonnage. Puis des techniques d'échantillonnage synthétique tels que le SMOTE et Borderline SMOTE.
+
+```{r, echo=FALSE}
+# Set a working directory
+setwd("/Users/vishwa/Documents/Master\ Informatique\ -\ Data\ Mining/Advanced\ Supervised\ Learning/Projet/Apprentissage\ Deséquilibré/")
+```
+
+Nous avons pris notre jeu de donnée sur **Kaggle**. Ce dernier porte sur l'analyse du risque de crédit et a été publié le 6 avril 2021.
+
+1. Explication du jeu de donnée
+
+```{r}
+data <- read.csv(
+  "data.csv",
+  sep = ",",
+  header = T
+)
+```
+
+
+Le principe de ce jeu de donnée est d'étudier ou rendre un avis sur des demandes de crédits et évaluer les risques liés à leur octroi selon plusieurs facteurs tels que la stratégie commerciale d'une entreprise.
+Notre jeu de donnée contient des données plutôt complète sur les prêts émis entre 2007 et 2015. Nous avons aussi accès au statut du prêt (en cours, en retard, entièrement payé, ...) et les informations de paiement. Notre jeu de donnée contient un total de $855 969$ observations avec $73$ variables. De plus, l'ensemble de données est très deséquilibré, avec environ $6%$ des prêts considérés comme impayés. Ce jeu de donnée comporte différents types d'éléments tels que des catégories, des chiffres et des dates. 
+
+Les variables importantes sont :
+
+ - loan_amnt - Le prêt demandé par le client. 
+ - int_rate - L'intérêt du prêt.
+ - grade - Grade de prêt noté par des catégories : A, B, C, D, E, F, G.
+ - annual_inc - Revenu annuel du client.
+ - purpose - Le but principal du prêt (de l'emprunt).
+ - installments – Montant mensuel des paiements pour le prêt.
+ - term – Durée du prêt jusqu'à son remboursement.
+ 
+Un défaut de paiement peut se produire lorsqu'un emprunteur est incapable d'effectuer des paiements en temps voulu, manque de paiements, évite ou arrête de faire des paiements. 
+
+Dans ce projet, nous allons sélectionner les variables que nous avons cité au dessus, ainsi que la variable cible qui se nomme **default_ind** (expliqué à quoi elle sert).
+
+```{r}
+# Sélection des variables importantes (caractéristique importantes)
+data <- data[,c("loan_amnt", "int_rate", "grade", "annual_inc", "purpose", "installment", "term", "default_ind")]
+```
+
+Nous utiliserons les données obtenu par l'analyse factorielle car nous souhaite se débarrasser des variables qualitatives même si l'inertie obtenu par ce dernier est faible. On en tiendra pas en rigueur, même si cela impacte nos résultats finaux (Matrice de confusion).
+
+```{r}
+data = read.csv(
+  "data_unbalanced.csv",
+  sep = ";",
+  header = T
+)
+```
+
+
+Regardons comment nos données sont deséquilibré. 
+
+```{r}
+# Selectionne que les valeurs == 0 dans la variable default_ind
+default_ind0 = which(data$default_ind==0)
+
+# Selectionne que les valeurs == 1 dans la variable default_ind
+default_ind1 = which(data$default_ind==1)
+
+# Ratio du nombre de 0 et 1 dans la variable default_ind
+d0 = length(default_ind0) / nrow(data)
+d1 = length(default_ind1) / nrow(data)
+
+# Ratio du desequilibre entre les modalites de la variable cible
+# Pour rééquilibrer les classes il faut rééchantillonner 17 fois la classe minoritaire ou réduire 17 fois la classe majoritaire
+print(
+  paste(
+    round(d0/d1,2),": 1"
+  )
+)
+```
+
+Nous avons voulu réduire le nombre d'observations jugés trop élévés qui entrainerait une temps de calcul plus conséquent. Cependant, nous allons montrer comment réduire le nombre d'observation sans réellement impacter le deséquilibre qu'il y a dans la variable **default_ind**. Bien sûr, il faudrait faire un test statistique pour savoir si une baisse du nombre d'observation a un impact significatif.
+
+```{r}
+# Pourcentage de rééchantillonnage (taux de selection pour les 0 et 1)
+pourcentage_selec = 0.1
+
+# Tirage aléatoire sans remise dans chacune des modalités de la variable cible
+tirage_data_0 = data[
+  sample(
+    x = default_ind0, 
+    size = round(
+      length(default_ind0) * pourcentage_selec
+    ),
+    replace = F
+  ),
+]
+tirage_data_1 = data[
+  sample(
+    x = default_ind1,
+    size = round(
+      length(default_ind1) * pourcentage_selec
+    ),
+    replace = F
+  ),
+]
+
+# Fusion des tirages de 0 et 1 (observations)
+new_data = rbind(tirage_data_0, tirage_data_1)
+```
+
+Cependant, il n'est pas nécessaire de tronquer notre échantillon. En fait, travailler sur toutes les données est envisageable. Nous avions voulu diminuer la taille de notre échantillon car nous apprenhenditions les temps d'exécution de nos algorithmes. Ce n'était qu'une peur. Bien sûr il n'en reste pas moins qu'on utilise 8 variables au lieu des 73 initialement pour réel cause computationel. 
+Vérifions qu'on garde le même ratio de 0 et de 1 dans notre variable cible **default_ind**. 
+
+```{r, echo=FALSE}
+d0_new = nrow(tirage_data_0) / nrow(new_data)
+d1_new = nrow(tirage_data_1) / nrow(new_data)       
+
+# Rtio du deséquilibre entre les modalités de la variable cible (donnéds tronquée)
+print(
+  paste(
+    round(d0_new / d1_new, 2),": 1"
+  )
+)
+```
+
+Sous échantillonnage :
+
+```{r}
+# La classe minoritaire
+nsamp <- min(
+  length(default_ind0), length(default_ind1)
+)
+
+# Rééquilibrage des données
+pick_default_ind0 <- data[
+  sample(
+    x = default_ind0, 
+    size = nsamp
+  ),
+]
+pick_default_ind1 <- data[
+    sample(
+    x = default_ind1, 
+    size = nsamp
+  ),
+]
+
+# On assemble la classe majoritaire et minoritaire
+data_undersampled <- rbind(pick_default_ind0, pick_default_ind1)
+
+# On verifie si il est bien équilibré
+d0_undersampled = nrow(pick_default_ind0) / nrow(data_undersampled)
+d1_undersampled = nrow(pick_default_ind1) / nrow(data_undersampled)
+
+# Check ratio, on remarque qu'il est à present equilibré
+print(
+  paste(
+    round(d0_undersampled / d1_undersampled, 2),": 1"
+  )
+)
+
+
+```
+
+Sur-échantillonnage :
+
+```{r}
+# La classe majoritaire
+nMajority <- max(
+  length(default_ind0), length(default_ind1)
+)
+
+# Rééquilibrage des données
+pick_default_ind0 <- data[
+  sample(
+    x = default_ind0, 
+    size = nMajority,
+    replace = F
+  ),
+]
+pick_default_ind1 <- data[
+    sample(
+    x = default_ind1, 
+    size = nMajority,
+    replace = T
+  ),
+]
+
+# Donnée sur echantillonné
+data_oversampled <- rbind(pick_default_ind0, pick_default_ind1)
+
+# Check ratio
+d0_oversampled = nrow(pick_default_ind0) / nrow(data_oversampled)
+d1_oversampled = nrow(pick_default_ind1) / nrow(data_oversampled)
+
+# Check ratio, on remarque qu'il est à present equilibré
+print(
+  paste(
+    round(d0_oversampled / d1_oversampled, 2),": 1"
+  )
+)
+```
+
+SMOTE : 
+
+```{r}
+# Librarie qui permet d'utiliser le fast knn car le knn "classique" met beaucoup trop de temps
+library(FNN)
+```
+
+```{r}
+# Trouvons la classe minoritaire et la classe majoritaire
+getMinMajClass <- function(data, index = FALSE) {
+  # On suppose que la variable cible est la dernière variable de notre dataframe
+  
+  # si la variable cible est numérique
+  if(is.numeric(data[, ncol(data)])) {
+    modalite <- unique(
+      data[, ncol(data)]
+    )
+  }
+  
+  # Si la variable cible est une chaine de caractere
+  else {
+    modalite <- as.character(
+      unique(
+        data[, ncol(data)]
+      )
+    )
+  }
+  
+  # Nous considerons la classe binaire
+  # Check la classe minoritaire
+  firstModalite = which(
+    data[, ncol(data)] == modalite[1]
+  )
+  
+  secondModalite = which(
+    data[, ncol(data)] == modalite[2]
+  )
+  
+  # Proportion de 'x' dans la premiere classe
+  propFirstModalite = length(firstModalite) / nrow(data)
+  
+  # Si il y a plus de 70% de 'x' dans la premiere modalite 
+  if(propFirstModalite > 0.7) {
+    # La seconde modalite est considéré comme minoritaire
+    
+    # On renvoie le jeu de donnée majoritaire et minoritaire
+    if (index == FALSE) {
+      return(
+        list(
+          "minority" = data[secondModalite, ],
+          "Majority" = data[firstModalite, ]
+        )
+      )
+    }
+      
+    # On renvoie uniquement l'index des classes minoritaire et majoritaire
+    return(
+      list(
+        "minority" = secondModalite,
+        "Majority" = firstModalite
+      )
+    )
+  }
+  
+  # A l'inverse
+  else {
+    # La premiere modalite est minoritaire
+    
+    # On renvoie le jeu de donnée majoritaire et minoritaire
+    if (index == FALSE) {
+      return(
+        list(
+          "minority" = data[firstModalite, ],
+          "Majority" = data[secondModalite, ]
+        )
+      )
+    }
+    
+    # On renvoie uniquement l'index des classes minoritaire et majoritaire
+    return(
+      list(
+        "minority" = firstModalite,
+        "Majority" = secondModalite
+      )
+    )
+    
+  }
+}
+```
+
+SMOTE : méthode de sur-echantillonnage
+
+```{r}
+# SMOTE algo
+SMOTES <- function(data, amountOfSMOTE = 100, kNearestNeighbors = 5) {
+  
+  # On differencie les classes majoritaires et minoritaires
+  MmClass <- getMinMajClass(data = data)
+  
+  if(amountOfSMOTE < 100) {
+    numMinorityClass <- (amountOfSMOTE * numMinorityClass) / 100
+    amountOfSMOTE <- 100
+  }
+  
+  # Le niveau du SMOTE est un entier multiple de 100
+  amountOfSMOTE <- amountOfSMOTE / 100
+  
+  # Le fast k plus proches voisins de la classe minoritaire
+  knnContainer <- get.knn(
+    data = MmClass$minority[, -ncol(MmClass$minority)],
+    k = kNearestNeighbors
+  )$nn.index
+  
+  # Generer notre echantillon synthétique
+  syntheticSample <- populate(
+    data = MmClass$minority, 
+    amountToGenerate = amountOfSMOTE, 
+    knnContainer = knnContainer, 
+    kNearestNeighbors = kNearestNeighbors,
+    method = "SMOTE"
+  )
+  
+  # On renvoie nos données initiaux + nos données synthétique
+  return(
+    rbind(data, syntheticSample)
+  )
+}
+```
+
+```{r}
+# Notre fonction qui va générer les échantillons synthétiques
+populate <- function(data, amountToGenerate, knnContainer, kNearestNeighbors, method, bruitMin = 0, bruitMax = 1) {
+  
+  # On choisit notre k plus proche
+  kRandom <- sample(
+    x = 1:kNearestNeighbors,
+    size = 1
+  )
+  
+  
+  # Tirage de l'index dans notre classe minoritaire avec remise
+  dataSampled <- sample(
+    x = seq(
+      nrow(data)
+    ),
+    size = round(
+      amountToGenerate * nrow(data)
+    ),
+    # Avec remise
+    replace = T
+  )
+  
+  # On réajuste en fonction de notre tirage les k plus proche voisin
+  knnContainer <- knnContainer[dataSampled, ]
+  
+  # Nom de la variable cible
+  dataCibleName <- colnames(data)[ncol(data)]
+  
+  # Valeur de la variable cible
+  if (method == "SMOTE") {
+    minorityName <- data[1, ncol(data)]
+  } else {
+    minorityName <- data[2, ncol(data)]
+  }
+  
+  # On prend le k plus proche voisin parmi un nombre aléatoire entre 1 et k
+  knnContainer <- apply(knnContainer, 1, function(x) sample(x, 1))
+  KMinoChosen <- data[knnContainer,]
+  
+  # Jeu donnée en fonction du SMOTE ou borderline
+  data <- data[dataSampled, ]
+  
+  # Différence entre un des k plus proche voisin et sa vraie valeur
+  dif <- KMinoChosen - data
+  
+  # On genere un nombre aléatoire entre 0 et 1
+  gap <- runif(
+    n = nrow(dif),
+    min = bruitMin,
+    max = bruitMax
+  )
+  
+  # Nos echantillons synthétique
+  synthetic = data + gap * dif
+  
+  # Ajouter la variable cible dans notre échantillon synthétique
+  synthetic[dataCibleName] = rep(
+    minorityName, nrow(synthetic)
+  )
+  
+  # On renvoie notre echantillon synthétique
+  return(synthetic)
+}
+```
+
+```{r}
+# Exemple : on sur-echantillon de 100% notre classe minoritaire en prenant 5 plus proche voisin
+SMOTES(
+  data = data[, c(1, 2, 4, 6, 8)],
+  amountOfSMOTE = 100,
+  kNearestNeighbors = 5
+)
+```
+
+Borderline SMOTE : Similaire à SMOTE mais on genere les synthétique sur les bords (entre classe minoritaire et majoritaire) bordure
+
+```{r}
+borderlineSMOTE <- function(data, kNearestNeighbors = 5, amountToGenerate = 1) {
+  # Notre classe minoritaire
+  MmClass <- getMinMajClass(data = data, index = TRUE)
+  
+  # Le fast k plus proches voisins de notre jeu de donnée où on selectionne les k plus proche voisin des minoritaires
+  
+  knnContainer <- get.knn(
+    data = data[, -ncol(data)],
+    k = kNearestNeighbors
+  )$nn.index[MmClass$minority, ]
+  
+  # Le nombre de majoritaire parmi les k plus proche voisin des minoritaires
+  majInKnn <- knnContainer %in% MmClass$Majority
+  
+  # Redimension de notre "vecteur"
+  if(kNearestNeighbors != 1) { 
+    dim(majInKnn) <- c(nrow(knnContainer), kNearestNeighbors)
+  }
+  
+  # Nombre de majoritaire
+  # On le transforme en matrice pour faciliter la sélection des individus
+  numMajInKnn <- as.matrix(
+    rowSums(majInKnn)
+  )
+  
+  # Borderline data
+  DANGER <- which(
+    # Condition pour être considéré comme des points "en danger"
+    kNearestNeighbors / 2 <= numMajInKnn & numMajInKnn <= kNearestNeighbors
+  )
+  
+  # On utilise le fast k plus proche voisin sur nos borderline data
+  knnContainer <- get.knn(
+    data = data[DANGER, -ncol(data)],
+    k = kNearestNeighbors
+  )$nn.index
+  
+  # Création de nos échantillons synthétique
+  syntheticSample <- populate(
+    data = data[DANGER,], 
+    amountToGenerate = amountToGenerate,
+    knnContainer = knnContainer, 
+    kNearestNeighbors = kNearestNeighbors,
+    method = "BorderlineSMOTE"
+  )
+  
+  return(
+    rbind(data, syntheticSample)
+  )
+}
+```
+
+```{r}
+# Exemple : On sur-échantillonne 100% de la classe mino pareil que le SMOTE
+borderlineSMOTE(
+  data = data[, c(1, 2, 4, 6, 8)],
+  kNearestNeighbors = 5
+)
+```
+
+Verification que SMOTE marche en comparant celle construit avec celle dans un package. Et représentation dans un espace $\mathbb{R}^2$ du SMOTE pour voir à quoi elle ressemble en prenant les données d'iris.
+
+```{r}
+# Test pour savoir si la fonction SMOTES (celle qu'on a faite est correcte)
+data_test = iris[c(2, 9, 16, 23, 51:63), c(1, 2, 5)]
+
+library(smotefamily)
+smote_pack = SMOTE(X = data_test[, c(1, 2)], target = as.numeric(data_test[, 3]), K = 3, dup_size = 10)
+smote_my = SMOTES(data_test, amountOfSMOTE = 1000, kNearestNeighbors = 3)
+
+library(ggplot2)
+# Donnée initial
+ggplot(data_test, aes(x=Sepal.Length, y=Sepal.Width, color=Species))+geom_point()
+
+# Donnée SMOTER
+ggplot(data = smote_pack$data, aes(x=Sepal.Length, y=Sepal.Width, color=class))+geom_point()
+ggplot(data = smote_my, aes(x=Sepal.Length, y=Sepal.Width, color=Species))+geom_point()
+```
+Nice ! Les synthétiques sont bien entre les segments de points appartenant a la classe minoritaire. 
+
+Pareil pour borderline SMOTE on check et on represente graphiquement dans un espace comprehensible.
+
+```{r}
+# Test de la fonction Borderline SMOTE pour savoir si celle crée est juste
+data_test = iris[c(2, 9, 16, 23, 51:63), c(1, 2, 5)]
+
+library(smotefamily)
+borderSMOTE_pack = BLSMOTE(data_test[, c(1, 2)], as.numeric(data_test[, 3]), K=2, dupSize = 100)
+borderSMOTE_my = borderlineSMOTE(data = data_test, kNearestNeighbors = 2, amountToGenerate = 100)
+
+library(ggplot2)
+ggplot(data = borderSMOTE_pack$data, aes(x=Sepal.Length, y=Sepal.Width, color=class))+geom_point()
+ggplot(data = borderSMOTE_my, aes(x=Sepal.Length, y=Sepal.Width, color=Species))+geom_point()
+```
+Super travail ! Le borderline fonctionne de même et ça se voit moins mais on genere les synthétique sur la bordure classe mino majo. 
+
+```{r}
+# Reprise du code qui était dans le fichier Test_ADASYN
+library(MASS)
+library(caret)
+library(rpart)
+library(glmnet)
+library(doParallel)
+
+# Fonction permettant d'entrainer et de predire les valeurs de Y
+f_test = function(data,pourcentage_train){
+  data$default_ind = as.factor(data$default_ind)
+  train_index = sample(1:nrow(data),nrow(data)*pourcentage_train)
+  data_train = data[train_index,]
+  data_test = data[-train_index,]
+  
+  ## ADL ##
+  fit_lda = lda(default_ind~.,data = data_train)
+  pred_lda = predict(fit_lda,newdata = data_test)
+  
+  ## Arbre de d?cision ##
+  arbre = rpart(default_ind~.,data = data_train)
+  pred_arbre = predict(arbre,newdata = data_test,type="class")
+
+  ## R?gression logistique p?nalis?e ##
+  
+  #cvfit=cv.glmnet(as.matrix(data_train[,1:(ncol(data_train)-1)]),data_train[,ncol(data_train)],family="binomial")
+  #pred_log = predict(cvfit,as.matrix(data_test[,1:(ncol(data_train)-1)]),s="lambda.min",type ="class")
+  #pred_log = as.factor(pred_log)
+  #levels(pred_log) = c(0,1)
+
+  return(list(data_test$default_ind,pred_lda$class,pred_arbre))
+}
+```
+
+On va faire génerer des échantillons et regarder les matrices de confusion. 
+
+```{r}
+# 1700 pour rééquilibrer les classes 
+new_data <- SMOTES(data = data, amountOfSMOTE = 1700)
+
+# On applique ce nouvel échantillon aux modèle
+test = f_test(new_data, 0.8)
+
+# On regarde matrice de confusion pour le modèle ADL 
+con = confusionMatrix(test[[2]], test[[1]])
+fourfoldplot(con$table, color = c("cyan", "pink"),
+             conf.level = 0, margin = 1, main = "Confusion Matrix")
+```
+
+Pareil on génére un échantillon. Cette fois ci avec la méthode Borderline SMOTE
+
+```{r}
+# 17 pour rééquilibrer les classes
+new_data <- borderlineSMOTE(data = data, amountToGenerate = 17)
+
+# On teste notre nouvel echantillon
+test = f_test(new_data, 0.8)
+
+# Matrice de confusion
+con = confusionMatrix(test[[2]], test[[1]])
+
+# Plot matrice de confusion
+fourfoldplot(con$table, color = c("cyan", "pink"),
+             conf.level = 0, margin = 1, main = "Confusion Matrix")
+```
+Sous-ehantillonnage :
+
+```{r}
+# On teste notre nouvel echantillon
+test = f_test(data_undersampled, 0.8)
+
+# Matrice de confusion
+con = confusionMatrix(test[[2]], test[[1]])
+
+# Plot matrice de confusion
+fourfoldplot(con$table, color = c("cyan", "pink"),
+             conf.level = 0, margin = 1, main = "Confusion Matrix")
+```
+
+Sur echantillonnage :
+
+```{r}
+# On teste notre nouvel echantillon
+test = f_test(data_oversampled, 0.8)
+
+# Matrice de confusion
+con = confusionMatrix(test[[2]], test[[1]])
+
+# Plot matrice de confusion
+fourfoldplot(con$table, color = c("cyan", "pink"),
+             conf.level = 0, margin = 1, main = "Confusion Matrix")
+```
